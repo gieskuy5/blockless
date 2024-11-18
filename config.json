@@ -3,8 +3,11 @@
     {
         "id": "YOUR_NODE_ID",
       "token": "YOUR_TOKEN_BEARER"
+    },
+    {
+        "id": "YOUR_NODE_ID",
+      "token": "YOUR_TOKEN_BEARER"
     }
-        // Add more usertokens as needed
   ],
   "interval": 300000
 }
