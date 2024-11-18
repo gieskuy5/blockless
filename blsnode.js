@@ -1,6 +1,7 @@
 const fs = require('fs');
 const axios = require('axios');
 const readline = require('readline');
+const { exec } = require('child_process');
 
 const LOGO = `
     ____  __           __   __              
@@ -139,6 +140,36 @@ class BLSNode {
     output += `Ping Status: ${this.pingSuccess ? '✅ Success' : '❌ Failed'}\n`;
     return output;
   }
+
+  static async setupEnvironment() {
+    const commands = [
+      'apt-get update',
+      'apt-get upgrade -y',
+      'curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -',
+      'apt-get install -y nodejs',
+      'npm install pm2 -g',
+      'mkdir -p /opt/blockless',
+      'npm install',
+      'pm2 start main.js --name "blockless-node"',
+      'pm2 save',
+      'pm2 startup'
+    ];
+
+    for (const cmd of commands) {
+      try {
+        await new Promise((resolve, reject) => {
+          exec(cmd, (error, stdout, stderr) => {
+            if (error) reject(error);
+            else resolve(stdout);
+          });
+        });
+        console.log(`✅ Successfully executed: ${cmd}`);
+      } catch (error) {
+        console.error(`❌ Error executing ${cmd}:`, error);
+        throw error;
+      }
+    }
+  }
 }
 
 function formatRunningTime(ms) {
@@ -156,30 +187,40 @@ class NodeManager {
   }
 
   setupKeyboard() {
-    readline.emitKeypressEvents(process.stdin);
-    process.stdin.setRawMode(true);
-    process.stdin.on('keypress', (str, key) => {
-      if (key.ctrl && key.name === 'c') {
-        process.exit();
-      } else if (key.name === 'right') {
-        this.currentNode = (this.currentNode + 1) % this.nodes.length;
-        this.display();
-      } else if (key.name === 'left') {
-        this.currentNode = (this.currentNode - 1 + this.nodes.length) % this.nodes.length;
-        this.display();
-      }
-    });
+    if (process.stdin.isTTY) {
+      readline.emitKeypressEvents(process.stdin);
+      process.stdin.setRawMode(true);
+      process.stdin.on('keypress', (str, key) => {
+        if (key.ctrl && key.name === 'c') {
+          process.exit();
+        } else if (key.name === 'right') {
+          this.currentNode = (this.currentNode + 1) % this.nodes.length;
+          this.display();
+        } else if (key.name === 'left') {
+          this.currentNode = (this.currentNode - 1 + this.nodes.length) % this.nodes.length;
+          this.display();
+        }
+      });
+    }
   }
 
   display() {
-    console.clear();
-    console.log(LOGO);
-    console.log(this.nodes[this.currentNode].formatStatus());
-    console.log(`Node ${this.currentNode + 1}/${this.nodes.length}`);
-    console.log('Use ← → to navigate | ctrl+c to exit');
+    if (process.stdout.isTTY) {
+      console.clear();
+      console.log(LOGO);
+      console.log(this.nodes[this.currentNode].formatStatus());
+      console.log(`Node ${this.currentNode + 1}/${this.nodes.length}`);
+      console.log('Use ← → to navigate | ctrl+c to exit');
+    } else {
+      console.log(this.nodes[this.currentNode].formatStatus());
+    }
   }
 
   async start() {
+    if (process.env.SETUP_ENV) {
+      await BLSNode.setupEnvironment();
+    }
+    
     const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
     
     for (const node of config.nodes) {
@@ -187,7 +228,6 @@ class NodeManager {
       this.nodes.push(blsNode);
     }
 
-    // Initial status check and start ping intervals
     for (const node of this.nodes) {
       await node.checkStatus();
       node.startPingInterval();
@@ -195,7 +235,6 @@ class NodeManager {
     
     this.display();
 
-    // Check status every minute to track rewards more accurately
     setInterval(() => {
       Promise.all(this.nodes.map(node => node.checkStatus()));
       this.display();
